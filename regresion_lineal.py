@@ -16,7 +16,10 @@ def cargar_datos(ruta):
     df = pd.read_csv(ruta, sep=";", low_memory=False)
 
     # Convertir columnas numéricas
-    cols_num = ["CH04", "CH06", "NIVEL_ED", "PP04B_COD", "P21", "PONDERA"]
+    cols_num = [
+        "CH04", "CH06", "NIVEL_ED", "PP04B_COD",
+        "PP04D_COD", "REGION", "P21", "PONDERA"
+    ]
     for c in cols_num:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
@@ -51,25 +54,29 @@ def aplicar_ipc(df, df_ipc):
 
 
 # ============================================================
-# 4) Preparar variables predictoras
+# 4) Preparar variables predictoras  (MEJORADO)
 # ============================================================
 def preparar_X_y(df):
     y = df["P21_real"]
 
+    #  Nuevas variables agregadas:
     variables_numericas = ["CH06"]
-    variables_categoricas = ["CH04", "NIVEL_ED", "PP04B_COD"]
+    variables_categoricas = [
+        "CH04",        # sexo
+        "NIVEL_ED",    # educación
+        "PP04B_COD",   # categoría ocupacional
+        "PP04D_COD",   # rama / tipo de empleo
+        "REGION"       # región INDEC
+    ]
 
-    # Numéricas
     X_num = df[variables_numericas]
 
-    # Categóricas → OneHot
+    # OneHot para variables categóricas
     enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
     X_cat = enc.fit_transform(df[variables_categoricas])
 
-    # Unir en matriz final
     X = np.hstack([X_num, X_cat])
 
-    # Nombres de variables
     feature_names = variables_numericas + list(
         enc.get_feature_names_out(variables_categoricas)
     )
@@ -82,7 +89,7 @@ def preparar_X_y(df):
 # ============================================================
 def entrenar_modelo(X, y):
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42
+        X, y, test_size=0.20, random_state=42
     )
 
     modelo = LinearRegression()
@@ -93,17 +100,17 @@ def entrenar_modelo(X, y):
 
 
 # ============================================================
-# 6) Mostrar métricas del modelo
+# 6) Mostrar métricas
 # ============================================================
 def mostrar_metricas(y_test, y_pred):
-    print("\n================ MÉTRICAS DEL MODELO ================")
+    print("\n================ METRICAS DEL MODELO ================")
     print("R2 :", round(r2_score(y_test, y_pred), 4))
     print("RMSE:", round(np.sqrt(mean_squared_error(y_test, y_pred)), 2))
     print("MAE:", round(mean_absolute_error(y_test, y_pred), 2))
 
 
 # ============================================================
-# 7) Gráfico de ajuste del modelo
+# 7) Gráfico
 # ============================================================
 def graficar_predicciones(y_test, y_pred, nombre_aglo):
     ESCALA = 10_000
@@ -117,12 +124,11 @@ def graficar_predicciones(y_test, y_pred, nombre_aglo):
     min_v = min(min(y_test_m), min(y_pred_m))
     max_v = max(max(y_test_m), max(y_pred_m))
 
-    # Línea de predicción perfecta
     plt.plot([min_v, max_v], [min_v, max_v], 'r--', label="Predicción perfecta")
 
     plt.xlabel("Ingreso real observado (miles de $)")
-    plt.ylabel("Ingreso predicho por el modelo (miles de $)")
-    plt.title(f"Predicción de ingresos — {nombre_aglo} (2025)")
+    plt.ylabel("Ingreso predicho (miles de $)")
+    plt.title(f"Predicción de ingresos — {nombre_aglo}")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -130,7 +136,7 @@ def graficar_predicciones(y_test, y_pred, nombre_aglo):
 
 
 # ============================================================
-# 8) Mostrar coeficientes del modelo
+# 8) Coeficientes
 # ============================================================
 def mostrar_coeficientes(modelo, feature_names):
     print("\n=========== COEFICIENTES DEL MODELO ===========")
@@ -139,30 +145,27 @@ def mostrar_coeficientes(modelo, feature_names):
 
 
 # ============================================================
-# 9) EJECUTAR TODO PARA UN AGLOMERADO
+# 9) Correr modelo por trimestre
 # ============================================================
-def correr_modelo_para_aglo(df_base, df_ipc, aglo, nombre_aglo):
-
-    print(f"\n================   {nombre_aglo}   ================")
+def correr_modelo_trimestre(df_base, df_ipc, aglo, nombre_aglo, anio, trimestre):
+    print(f"\n=========== {nombre_aglo}  {anio}-{trimestre}T ===========")
 
     df = df_base.copy()
-    df = df[df["AGLOMERADO"] == aglo]
-    df = df[df["anio"] == 2025]
+    df = df[
+        (df["AGLOMERADO"] == aglo) &
+        (df["anio"] == anio) &
+        (df["trimestre"] == trimestre)
+    ]
 
-    # Aplicar IPC
     df = aplicar_ipc(df, df_ipc)
 
-    # Preparar matriz X-y
     X, y, feature_names, enc = preparar_X_y(df)
 
-    # Entrenar
     modelo, X_test, y_test, y_pred = entrenar_modelo(X, y)
 
-    # Resultados
     mostrar_metricas(y_test, y_pred)
-    graficar_predicciones(y_test, y_pred, nombre_aglo)
-    mostrar_coeficientes(modelo, feature_names)
-
+    graficar_predicciones(y_test, y_pred, f"{nombre_aglo} {anio} T{trimestre}")
+    #mostrar_coeficientes(modelo, feature_names)
 
 
 # ============================================================
@@ -173,7 +176,7 @@ df_base = cargar_datos("IndividualUnificado/individual_unificado.txt")
 df_ipc = crear_df_ipc(ipc_acumulado)
 
 # Córdoba
-correr_modelo_para_aglo(df_base, df_ipc, aglo=13, nombre_aglo="Gran Córdoba")
+correr_modelo_trimestre(df_base, df_ipc, 13, "Gran Córdoba", 2024, 4)
 
 # Mendoza
-correr_modelo_para_aglo(df_base, df_ipc, aglo=10, nombre_aglo="Gran Mendoza")
+correr_modelo_trimestre(df_base, df_ipc, 10, "Gran Mendoza", 2024, 4)

@@ -94,10 +94,6 @@ def recodificar_pp04d(df):
 # ---------------------------
 # FUNCIONES AUXILIARES PARA GRÁFICOS
 # ---------------------------
-
-
-
-
 def config_axes(ax, titulo):
     ax.set_title(titulo)
     ax.set_ylabel("Ingreso real")
