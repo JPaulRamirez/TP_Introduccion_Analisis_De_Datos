@@ -65,6 +65,8 @@ def calcular_estadisticos(df, columna):
         count="count"
     ).reset_index()
 
+
+
 df_nominal = calcular_estadisticos(df_total, VARIABLE_NOMINAL)
 df_real = calcular_estadisticos(df_total, VARIABLE_REAL)
 

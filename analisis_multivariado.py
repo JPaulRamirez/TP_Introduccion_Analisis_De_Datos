@@ -36,7 +36,6 @@ df_ipc = pd.DataFrame(ipc_rows)
 # CARGAR DATOS DESDE ARCHIVO UNIFICADO
 # ---------------------------
 
-
 def cargar_datos_unificado(ruta):
     df = pd.read_csv(ruta, sep=";", low_memory=False)
 
@@ -72,25 +71,31 @@ def agregar_categoria_educativa(df):
     df["edu_cat"] = df["NIVEL_ED"].map(mapa)
 
     return df
+    
+    
+mapa_pp04d = {
+    1: "Directores / Gerentes",
+    2: "Profesionales científicos y técnicos",
+    3: "Técnicos y profesionales de apoyo",
+    4: "Empleados administrativos",
+    5: "Serv. personales / vendedores",
+    6: "Agricultores / Operadores agro",
+    7: "Oficios artesanales / Construcción",
+    8: "Operadores de máquinas / Ensambladores",
+    9: "Ocupaciones no calificadas"
+}
 
+def recodificar_pp04d(df):
+    df = df.copy()
+    # Tomamos SOLO el primer dígito del código ocupacional (familia CNO)
+    df["PP04D_cat"] = df["PP04D_COD"].astype(str).str[0].astype(float)
+    df["PP04D_label"] = df["PP04D_cat"].map(mapa_pp04d)
+    return df
 # ---------------------------
 # FUNCIONES AUXILIARES PARA GRÁFICOS
 # ---------------------------
 
-def remove_outliers_custom(group):
-    # Para grupos pequeños (2 o 3 observaciones): eliminar el valor máximo
-    if len(group) <= 3:
-        max_val = group["P21_real"].max()
-        return group[group["P21_real"] != max_val]
 
-    # IQR clásico
-    Q1 = group["P21_real"].quantile(0.25)
-    Q3 = group["P21_real"].quantile(0.75)
-    IQR = Q3 - Q1
-    lower = Q1 - 1.5 * IQR
-    upper = Q3 + 1.5 * IQR
-
-    return group[(group["P21_real"] >= lower) & (group["P21_real"] <= upper)]
 
 
 def config_axes(ax, titulo):
@@ -105,6 +110,7 @@ def crear_figura_2():
 # PROCESAMIENTO
 # ---------------------------
 
+
 df_total = cargar_datos_unificado(RUTA_UNIFICADO)
 
 # Unir IPC
@@ -115,6 +121,11 @@ df_total[VARIABLE_REAL] = df_total[VARIABLE_NOMINAL] / df_total["IPC"]
 
 # Agregar categoría educativa
 df_total = agregar_categoria_educativa(df_total)
+
+# Normalizar la columna (a int)
+df_total["PP04B_COD"] = pd.to_numeric(df_total["PP04B_COD"], errors="coerce")
+
+# Crear la nueva columna categórica
 
 # ---------------------------
 # ELIMINAR OUTLIERS POR Z-SCORE
@@ -128,10 +139,8 @@ df_total = df_total[
     )
 ]
 
-#print(df_test.sort_values("P21_real", ascending=False).head(10))
-
-
-
+# Recodificar PP04D en familias CNO
+df_total = recodificar_pp04d(df_total)
 # ---------------------------
 # GRÁFICOS MULTIVARIADOS
 # ---------------------------
@@ -209,41 +218,60 @@ def grafico_edad_doble(df):
 def grafico_pp04b_doble(df):
     fig, axes = crear_figura_2()
 
+    # Córdoba
     df_cba = df[df["AGLOMERADO"] == 13]
-    axes[0].bar(df_cba.groupby("PP04B_COD")[VARIABLE_REAL].median().index.astype(str),
-                df_cba.groupby("PP04B_COD")[VARIABLE_REAL].median().values)
+    med_cba = df_cba.groupby("PP04B_COD_cat")["P21_real"].median()
+    axes[0].bar(med_cba.index, med_cba.values, color="orange")
     config_axes(axes[0], "Ingreso real por categoría ocupacional — Córdoba")
 
+    # Mendoza
     df_mza = df[df["AGLOMERADO"] == 10]
-    axes[1].bar(df_mza.groupby("PP04B_COD")[VARIABLE_REAL].median().index.astype(str),
-                df_mza.groupby("PP04B_COD")[VARIABLE_REAL].median().values)
+    med_mza = df_mza.groupby("PP04B_COD_cat")["P21_real"].median()
+    axes[1].bar(med_mza.index, med_mza.values, color="orange")
     config_axes(axes[1], "Ingreso real por categoría ocupacional — Mendoza")
 
     plt.tight_layout()
     plt.show()
 
+
+
 def grafico_pp04d_doble(df):
-    fig, axes = crear_figura_2()
+    fig, axes = plt.subplots(1, 2, figsize=(20, 8))
 
-    df_cba = df[df["AGLOMERADO"] == 13]
-    axes[0].bar(df_cba.groupby("PP04D_COD")[VARIABLE_REAL].median().index.astype(str),
-                df_cba.groupby("PP04D_COD")[VARIABLE_REAL].median().values)
-    config_axes(axes[0], "Ingreso real por tipo de empleo — Córdoba")
+    # --- CÓRDOBA ---
+    df_cba = df[df["AGLOMERADO"] == AGLOMERADO_CORDOBA]
+    med_cba = df_cba.groupby("PP04D_label")[VARIABLE_REAL].median().dropna()
+    
+    axes[0].bar(med_cba.index, med_cba.values, color="purple")
+    axes[0].set_title("Ingreso real por tipo de ocupación — CÓRDOBA")
+    axes[0].set_ylabel("Ingreso real")
+    
+    # CORRECCIÓN AQUÍ: Agregamos ha='right' para anclar el texto
+    axes[0].set_xticklabels(med_cba.index, rotation=45, ha='right', fontsize=9)
 
-    df_mza = df[df["AGLOMERADO"] == 10]
-    axes[1].bar(df_mza.groupby("PP04D_COD")[VARIABLE_REAL].median().index.astype(str),
-                df_mza.groupby("PP04D_COD")[VARIABLE_REAL].median().values)
-    config_axes(axes[1], "Ingreso real por tipo de empleo — Mendoza")
+    # --- MENDOZA ---
+    df_mza = df[df["AGLOMERADO"] == AGLOMERADO_MENDOZA]
+    med_mza = df_mza.groupby("PP04D_label")[VARIABLE_REAL].median().dropna()
+    
+    axes[1].bar(med_mza.index, med_mza.values, color="purple")
+    axes[1].set_title("Ingreso real por tipo de ocupación — MENDOZA")
+    axes[1].set_ylabel("Ingreso real")
+    
+    # CORRECCIÓN AQUÍ TAMBIÉN
+    axes[1].set_xticklabels(med_mza.index, rotation=45, ha='right', fontsize=9)
 
-    plt.tight_layout()
+    # Ajustes de márgenes
+    plt.tight_layout(rect=[0, 0, 1, 1]) 
+    # Le damos un poco más de aire abajo si hace falta, pero tight_layout suele arreglarlo
+    plt.subplots_adjust(bottom=0.25) 
+
     plt.show()
-
 # ---------------------------
 # EJECUCIÓN
 # ---------------------------
 
-#grafico_sexo_doble(df_total)
+grafico_sexo_doble(df_total)
 grafico_educacion_doble(df_total)
-#grafico_edad_doble(df_total)
-#grafico_pp04b_doble(df_total)
-#grafico_pp04d_doble(df_total)
+grafico_edad_doble(df_total)
+#grafico_pp04b_doble(df_total) # Dudoso
+grafico_pp04d_doble(df_total)
